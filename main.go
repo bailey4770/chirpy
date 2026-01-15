@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	filepathRoot = "."
+	filepathRoot = "./static/"
 	port         = "8080"
 )
 
