@@ -8,37 +8,47 @@ import (
 )
 
 func TestHandlerValidateJSON(t *testing.T) {
-	type params struct {
-		Body string `json:"body"`
-	}
-
 	type testCase struct {
-		name               string
-		params             params
-		expectedStatusCode int
-		expectedError      string
-		expectedValid      bool
-	}
-
-	type returnVals struct {
-		Error string `json:"error"`
-		Valid bool   `json:"valid"`
+		name                string
+		params              params
+		expectedStatusCode  int
+		expectedError       string
+		expectedValid       bool
+		expectedCleanedBody string
 	}
 
 	testCases := []testCase{
 		{
-			name:               "Valid chirp",
-			params:             params{Body: "I had something interesting for breakfast"},
-			expectedStatusCode: 200,
-			expectedError:      "",
-			expectedValid:      true,
+			name:                "Valid chirp",
+			params:              params{Body: "I had something interesting for breakfast"},
+			expectedStatusCode:  200,
+			expectedError:       "",
+			expectedValid:       true,
+			expectedCleanedBody: "I had something interesting for breakfast",
 		},
 		{
-			name:               "Too long chirp",
-			params:             params{Body: "lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."},
-			expectedStatusCode: 400,
-			expectedError:      "Chirp is too long",
-			expectedValid:      false,
+			name:                "Too long chirp",
+			params:              params{Body: "lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum."},
+			expectedStatusCode:  400,
+			expectedError:       "Chirp is too long",
+			expectedValid:       false,
+			expectedCleanedBody: "",
+		},
+		{
+			name:                "Chirp with profanity",
+			params:              params{Body: "I hear Mastodon is better than Chirpy. sharbert I need to migrate"},
+			expectedStatusCode:  200,
+			expectedError:       "",
+			expectedValid:       true,
+			expectedCleanedBody: "I hear Mastodon is better than Chirpy. **** I need to migrate",
+		},
+		{
+			name:                "Chirp with profanity and uppercase",
+			params:              params{Body: "I really need a kerfuffle to go to bed sooner, Fornax !"},
+			expectedStatusCode:  200,
+			expectedError:       "",
+			expectedValid:       true,
+			expectedCleanedBody: "I really need a **** to go to bed sooner, **** !",
 		},
 	}
 
@@ -84,6 +94,9 @@ func TestHandlerValidateJSON(t *testing.T) {
 			}
 			if response.Valid != testCase.expectedValid {
 				t.Fatalf("Fail: expected valid %v but recieved %v", testCase.expectedValid, response.Valid)
+			}
+			if response.CleanedBody != testCase.expectedCleanedBody {
+				t.Fatalf("Fail: expected cleaned body %s but recieved %s", testCase.expectedCleanedBody, response.CleanedBody)
 			}
 		})
 	}

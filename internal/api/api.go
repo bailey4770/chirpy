@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"regexp"
 )
 
 func HandlerHealth(w http.ResponseWriter, req *http.Request) {
@@ -15,16 +16,17 @@ func HandlerHealth(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+type params struct {
+	Body string `json:"body"`
+}
+
+type returnVals struct {
+	Error       string `json:"error"`
+	Valid       bool   `json:"valid"`
+	CleanedBody string `json:"cleaned_body"`
+}
+
 func HandlerValidateChirp(w http.ResponseWriter, req *http.Request) {
-	type params struct {
-		Body string `json:"body"`
-	}
-
-	type returnVals struct {
-		Error string `json:"error"`
-		Valid bool   `json:"valid"`
-	}
-
 	decoder := json.NewDecoder(req.Body)
 	chirp := params{}
 	response := returnVals{}
@@ -39,6 +41,7 @@ func HandlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	} else {
 		w.WriteHeader(http.StatusOK)
 		response.Valid = true
+		response.CleanedBody = removeProfanity(chirp.Body)
 	}
 
 	data, err := json.Marshal(&response)
@@ -52,4 +55,19 @@ func HandlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	if _, err := w.Write(data); err != nil {
 		log.Printf("Error: could not write response to http body: %v", err)
 	}
+}
+
+func removeProfanity(text string) string {
+	profanity := []string{
+		"kerfuffle",
+		"sharbert",
+		"fornax",
+	}
+
+	for _, bw := range profanity {
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(bw))
+		text = re.ReplaceAllString(text, "****")
+	}
+
+	return text
 }
