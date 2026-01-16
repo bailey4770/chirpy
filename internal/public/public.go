@@ -2,12 +2,15 @@
 package public
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"regexp"
+	"time"
 
-	"github.com/bailey4770/chirpy/internal/config"
+	"github.com/bailey4770/chirpy/internal/database"
+	"github.com/google/uuid"
 )
 
 func HandlerHealth(w http.ResponseWriter, req *http.Request) {
@@ -18,46 +21,79 @@ func HandlerHealth(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-type params struct {
+type chirpParams struct {
 	Body string `json:"body"`
 }
 
-type returnVals struct {
+type chirpReturnVals struct {
 	Error       string `json:"error"`
 	Valid       bool   `json:"valid"`
 	CleanedBody string `json:"cleaned_body"`
 }
 
-func HandlerValidateChirp(cfg *config.APIConfig) func(http.ResponseWriter, *http.Request) {
+func HandlerValidateChirp(w http.ResponseWriter, req *http.Request) {
+	chirp := chirpParams{}
+	response := chirpReturnVals{}
+
+	if err := json.NewDecoder(req.Body).Decode(&chirp); err != nil {
+		log.Printf("Error: could not decode request to Go struct: %v", err)
+		http.Error(w, "invalid requesy body", http.StatusBadRequest)
+		return
+	}
+
+	if len(chirp.Body) > 140 {
+		http.Error(w, "Chirp is too long", http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	response.Valid = true
+	response.CleanedBody = removeProfanity(chirp.Body)
+	writeResponse(response, w)
+}
+
+type createUserParams struct {
+	Email string `json:"email"`
+}
+
+type apiUser struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
+type userCreator interface {
+	CreateUser(ctx context.Context, email string) (database.User, error)
+}
+
+func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		decoder := json.NewDecoder(req.Body)
-		chirp := params{}
-		response := returnVals{}
+		createUserReq := createUserParams{}
 
-		if err := decoder.Decode(&chirp); err != nil {
-			log.Printf("Error: could not decode request to JSON: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			response.Error = "Something went wrong"
-		} else if len(chirp.Body) > 140 {
-			w.WriteHeader(http.StatusBadRequest)
-			response.Error = "Chirp is too long"
-		} else {
-			w.WriteHeader(http.StatusOK)
-			response.Valid = true
-			response.CleanedBody = removeProfanity(chirp.Body)
-		}
-
-		data, err := json.Marshal(&response)
-		if err != nil {
-			log.Printf("Error: could not marshal response: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewDecoder(req.Body).Decode(&createUserReq); err != nil {
+			log.Printf("Error: could not recode create user request to Go struct: %v", err)
+			http.Error(w, "invalid requesy body", http.StatusBadRequest)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if _, err := w.Write(data); err != nil {
-			log.Printf("Error: could not write response to http body: %v", err)
+		dbUser, err := db.CreateUser(req.Context(), createUserReq.Email)
+		if err != nil {
+			log.Printf("Error: could not create new user with email %s: %v", createUserReq.Email, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			http.Error(w, "databse could not create new user with email %s", http.StatusInternalServerError)
+			return
 		}
+
+		user := apiUser{
+			ID:        dbUser.ID,
+			CreatedAt: dbUser.CreatedAt,
+			UpdatedAt: dbUser.UpdatedAt,
+			Email:     dbUser.Email,
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		writeResponse(user, w)
 	}
 }
 
@@ -74,4 +110,22 @@ func removeProfanity(text string) string {
 	}
 
 	return text
+}
+
+type responseTypes interface {
+	chirpReturnVals | apiUser
+}
+
+func writeResponse[T responseTypes](response T, w http.ResponseWriter) {
+	data, err := json.Marshal(&response)
+	if err != nil {
+		log.Printf("Error: could not marshal response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(data); err != nil {
+		log.Printf("Error: could not write response to http body: %v", err)
+	}
 }

@@ -6,11 +6,11 @@ import (
 )
 
 type APIConfig struct {
-	DBQueries *database.Queries
+	DB *database.Queries
 }
 
 func New(dbQueries *database.Queries) *APIConfig {
 	return &APIConfig{
-		DBQueries: dbQueries,
+		DB: dbQueries,
 	}
 }

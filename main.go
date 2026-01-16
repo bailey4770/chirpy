@@ -10,6 +10,7 @@ import (
 	"github.com/bailey4770/chirpy/internal/config"
 	"github.com/bailey4770/chirpy/internal/database"
 	"github.com/bailey4770/chirpy/internal/public"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
@@ -19,34 +20,49 @@ const (
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatalf("Error: could not load .env file: %v", err)
+	}
 	dbURL := os.Getenv("DB_URL")
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Error: could not open SQL databse: %v", err)
 	}
+	defer func() { _ = db.Close() }()
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("Error: could not connect to db: %v", err)
+	}
 
 	dbQueries := database.New(db)
-	cfg := config.New(dbQueries)
-	adminState := &admin.State{}
 
-	serveMux := http.NewServeMux()
-	serveMux.Handle("/app/",
+	cfg := config.New(dbQueries)
+	adminState := &admin.State{DB: dbQueries}
+	if os.Getenv("PLATFORM") == "dev" {
+		adminState.IsAdmin = true
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/app/",
 		adminState.MiddlewareMetricsInc(
 			http.StripPrefix("/app/", http.FileServer(http.Dir(filepathRoot))),
 		),
 	)
-	serveMux.HandleFunc("GET /api/healthz", public.HandlerHealth)
-	serveMux.HandleFunc("POST /api/validate_chirp", public.HandlerValidateChirp(cfg))
-	serveMux.HandleFunc("GET /admin/metrics", adminState.HandlerMetrics)
-	serveMux.HandleFunc("POST /admin/reset", adminState.HanlderReset)
+	mux.HandleFunc("GET /api/healthz", public.HandlerHealth)
+	mux.HandleFunc("POST /api/validate_chirp", public.HandlerValidateChirp)
+	mux.HandleFunc("POST /api/users", public.HandlerCreateUser(cfg.DB))
+
+	mux.Handle("GET /admin/metrics", adminState.MiddlewareCheckAdminCreds(adminState.HandlerMetrics))
+	mux.Handle("POST /admin/reset", adminState.MiddlewareCheckAdminCreds(adminState.HandlerReset))
 
 	server := &http.Server{
-		Handler: serveMux,
+		Handler: mux,
 		Addr:    ":" + port,
 	}
 
 	log.Printf("Serving files from %s on port %s\n", filepathRoot, port)
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("Error: could not start server listen and server: %v", err)
+		log.Fatalf("Error: could not start listen and serve: %v", err)
 	}
 }
