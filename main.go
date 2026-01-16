@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -19,31 +20,37 @@ const (
 	port         = "8080"
 )
 
-func main() {
+func connectDB() (*sql.DB, error) {
 	if err := godotenv.Load(); err != nil {
-		log.Fatalf("Error: could not load .env file: %v", err)
+		return nil, fmt.Errorf("could not load .env file: %v", err)
 	}
-	dbURL := os.Getenv("DB_URL")
 
+	dbURL := os.Getenv("DB_URL")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatalf("Error: could not open SQL databse: %v", err)
+		return nil, fmt.Errorf("could not open SQL databse: %v", err)
 	}
-	defer func() { _ = db.Close() }()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("Error: could not connect to db: %v", err)
+		return nil, fmt.Errorf("could not connect to db: %v", err)
 	}
 
+	return db, nil
+}
+
+func loadConfigs(db *sql.DB) (*config.APIConfig, *admin.State) {
 	dbQueries := database.New(db)
 
-	cfg := config.New(dbQueries)
+	cfg := &config.APIConfig{DB: dbQueries}
 	adminState := &admin.State{DB: dbQueries}
 	if os.Getenv("PLATFORM") == "dev" {
 		adminState.IsAdmin = true
 	}
 
-	mux := http.NewServeMux()
+	return cfg, adminState
+}
+
+func registerRoutes(mux *http.ServeMux, cfg *config.APIConfig, adminState *admin.State) {
 	mux.Handle("/app/",
 		adminState.MiddlewareMetricsInc(
 			http.StripPrefix("/app/", http.FileServer(http.Dir(filepathRoot))),
@@ -55,7 +62,19 @@ func main() {
 
 	mux.Handle("GET /admin/metrics", adminState.MiddlewareCheckAdminCreds(adminState.HandlerMetrics))
 	mux.Handle("POST /admin/reset", adminState.MiddlewareCheckAdminCreds(adminState.HandlerReset))
+}
 
+func main() {
+	db, err := connectDB()
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	cfg, adminState := loadConfigs(db)
+
+	mux := http.NewServeMux()
+	registerRoutes(mux, cfg, adminState)
 	server := &http.Server{
 		Handler: mux,
 		Addr:    ":" + port,
