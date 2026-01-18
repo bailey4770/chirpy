@@ -6,3 +6,7 @@ RETURNING *;
 -- name: FetchChirpsByAge :many
 SELECT * FROM chirps
 ORDER BY created_at ASC;
+
+-- name: FetchChirpByID :one
+SELECT * FROM chirps
+WHERE id = $1;

@@ -34,6 +34,16 @@ type apiChirp struct {
 	UserID    uuid.UUID `json:"user_id"`
 }
 
+func dbChirpToAPIChirp(dbChirp database.Chirp) apiChirp {
+	return apiChirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+	}
+}
+
 type chirpCreator interface {
 	CreateChirp(ctx context.Context, arg database.CreateChirpParams) (database.Chirp, error)
 }
@@ -52,7 +62,7 @@ func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) 
 			return
 		}
 
-		chirpDB, err := db.CreateChirp(req.Context(), database.CreateChirpParams{
+		dbChirp, err := db.CreateChirp(req.Context(), database.CreateChirpParams{
 			Body:   removeProfanity(chirpReq.Body),
 			UserID: chirpReq.UserID,
 		})
@@ -61,13 +71,7 @@ func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) 
 			return
 		}
 
-		chirp := apiChirp{
-			ID:        chirpDB.ID,
-			CreatedAt: chirpDB.CreatedAt,
-			UpdatedAt: chirpDB.UpdatedAt,
-			Body:      chirpDB.Body,
-			UserID:    chirpDB.UserID,
-		}
+		chirp := dbChirpToAPIChirp(dbChirp)
 
 		log.Printf("Valid chirp from %d received and saved to db", chirp.UserID)
 		w.WriteHeader(http.StatusCreated)
@@ -75,11 +79,11 @@ func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) 
 	}
 }
 
-type chirpFetcher interface {
+type allChirpsFetcher interface {
 	FetchChirpsByAge(ctx context.Context) ([]database.Chirp, error)
 }
 
-func HandlerFetchChirpsByAge(db chirpFetcher) func(http.ResponseWriter, *http.Request) {
+func HandlerFetchChirpsByAge(db allChirpsFetcher) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		dbChirps, err := db.FetchChirpsByAge(req.Context())
 		if err != nil {
@@ -89,18 +93,38 @@ func HandlerFetchChirpsByAge(db chirpFetcher) func(http.ResponseWriter, *http.Re
 
 		chirps := []apiChirp{}
 		for _, dbChirp := range dbChirps {
-			chirps = append(chirps, apiChirp{
-				ID:        dbChirp.ID,
-				CreatedAt: dbChirp.CreatedAt,
-				UpdatedAt: dbChirp.UpdatedAt,
-				Body:      dbChirp.Body,
-				UserID:    dbChirp.UserID,
-			})
+			chirps = append(chirps, dbChirpToAPIChirp(dbChirp))
 		}
 
 		log.Print("All chirps fetched from db")
 		w.WriteHeader(http.StatusOK)
 		writeResponse(chirps, w)
+	}
+}
+
+type chirpFetcher interface {
+	FetchChirpByID(ctx context.Context, id uuid.UUID) (database.Chirp, error)
+}
+
+func HandlerFetchChirpByID(db chirpFetcher) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		chirpID, err := uuid.Parse(req.PathValue("chirpID"))
+		if err != nil {
+			http.Error(w, "could not parse chirp ID to uuid", http.StatusBadRequest)
+			return
+		}
+
+		dbChirp, err := db.FetchChirpByID(req.Context(), chirpID)
+		if err != nil {
+			http.Error(w, "could not fetch requested chirp", http.StatusNotFound)
+			return
+		}
+
+		chirp := dbChirpToAPIChirp(dbChirp)
+
+		log.Print("Chirp fetched from db")
+		w.WriteHeader(http.StatusOK)
+		writeResponse(chirp, w)
 	}
 }
 
