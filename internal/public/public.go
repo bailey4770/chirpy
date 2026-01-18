@@ -58,6 +58,7 @@ func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) 
 		})
 		if err != nil {
 			http.Error(w, "Could not create chirp in db", http.StatusInternalServerError)
+			return
 		}
 
 		chirp := apiChirp{
@@ -71,6 +72,35 @@ func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) 
 		log.Printf("Valid chirp from %d received and saved to db", chirp.UserID)
 		w.WriteHeader(http.StatusCreated)
 		writeResponse(chirp, w)
+	}
+}
+
+type chirpFetcher interface {
+	FetchChirpsByAge(ctx context.Context) ([]database.Chirp, error)
+}
+
+func HandlerFetchChirpsByAge(db chirpFetcher) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		dbChirps, err := db.FetchChirpsByAge(req.Context())
+		if err != nil {
+			http.Error(w, "could not fetch chirps from db", http.StatusInternalServerError)
+			return
+		}
+
+		chirps := []apiChirp{}
+		for _, dbChirp := range dbChirps {
+			chirps = append(chirps, apiChirp{
+				ID:        dbChirp.ID,
+				CreatedAt: dbChirp.CreatedAt,
+				UpdatedAt: dbChirp.UpdatedAt,
+				Body:      dbChirp.Body,
+				UserID:    dbChirp.UserID,
+			})
+		}
+
+		log.Print("All chirps fetched from db")
+		w.WriteHeader(http.StatusOK)
+		writeResponse(chirps, w)
 	}
 }
 
@@ -137,14 +167,13 @@ func removeProfanity(text string) string {
 }
 
 type responseTypes interface {
-	apiChirp | apiUser
+	apiChirp | apiUser | []apiChirp
 }
 
 func writeResponse[T responseTypes](response T, w http.ResponseWriter) {
 	data, err := json.Marshal(&response)
 	if err != nil {
-		log.Printf("Error: could not marshal response: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, "Error: could not marshal response", http.StatusInternalServerError)
 		return
 	}
 

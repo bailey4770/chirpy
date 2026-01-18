@@ -80,6 +80,7 @@ func registerRoutes(mux *http.ServeMux, cfg *config.APIConfig, adminState *admin
 		),
 	)
 	mux.HandleFunc("GET /api/healthz", public.HandlerHealth)
+	mux.HandleFunc("GET /api/chirps", public.HandlerFetchChirpsByAge(cfg.DB))
 	mux.HandleFunc("POST /api/chirps", public.HandlerPostChirp(cfg.DB))
 	mux.HandleFunc("POST /api/users", public.HandlerCreateUser(cfg.DB))
 
