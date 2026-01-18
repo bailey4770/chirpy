@@ -35,13 +35,11 @@ func (s *State) MiddlewareMetricsInc(next http.Handler) http.Handler {
 func (s *State) MiddlewareCheckAdminCreds(f http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if !s.IsAdmin {
-			w.WriteHeader(http.StatusForbidden)
-			if _, err := w.Write([]byte("Error: non-admins cannot access admin API\n")); err != nil {
-				log.Printf("Error: could not write to response body: %v", err)
-			}
-		} else {
-			f(w, req)
+			http.Error(w, "non-admins cannot access admin API", http.StatusForbidden)
+			return
 		}
+
+		f(w, req)
 	})
 }
 
@@ -59,6 +57,8 @@ func (s *State) HandlerReset(w http.ResponseWriter, req *http.Request) {
 	if err := s.DB.DeleteAllUsers(req.Context()); err != nil {
 		log.Printf("Error: could not delete all users from db: %v", err)
 	}
+
+	log.Print("Warning: Successfully delted all users from DB")
 
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write([]byte("Successfully deleted all users from db\n")); err != nil {

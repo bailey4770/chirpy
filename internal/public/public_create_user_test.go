@@ -2,31 +2,13 @@ package public
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/bailey4770/chirpy/internal/database"
-	"github.com/google/uuid"
 )
-
-type mockDB struct {
-	users []database.User
-}
-
-func (m *mockDB) CreateUser(ctx context.Context, email string) (database.User, error) {
-	user := database.User{
-		ID:        uuid.New(),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		Email:     email,
-	}
-	m.users = append(m.users, user)
-	return user, nil
-}
 
 func TestHandleCreateUser(t *testing.T) {
 	type createUserTestCase struct {
@@ -69,8 +51,7 @@ func TestHandleCreateUser(t *testing.T) {
 			}
 
 			var response database.User
-			decoder := json.NewDecoder(resp.Body)
-			if err := decoder.Decode(&response); err != nil {
+			if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 				t.Fatalf("Error: could not unmarshal response: %v", err)
 			}
 

@@ -22,34 +22,56 @@ func HandlerHealth(w http.ResponseWriter, req *http.Request) {
 }
 
 type chirpParams struct {
-	Body string `json:"body"`
+	Body   string    `json:"body"`
+	UserID uuid.UUID `json:"user_id"`
 }
 
-type chirpReturnVals struct {
-	Error       string `json:"error"`
-	Valid       bool   `json:"valid"`
-	CleanedBody string `json:"cleaned_body"`
+type apiChirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
 }
 
-func HandlerValidateChirp(w http.ResponseWriter, req *http.Request) {
-	chirp := chirpParams{}
-	response := chirpReturnVals{}
+type chirpCreator interface {
+	CreateChirp(ctx context.Context, arg database.CreateChirpParams) (database.Chirp, error)
+}
 
-	if err := json.NewDecoder(req.Body).Decode(&chirp); err != nil {
-		log.Printf("Error: could not decode request to Go struct: %v", err)
-		http.Error(w, "invalid requesy body", http.StatusBadRequest)
-		return
+func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		chirpReq := chirpParams{}
+
+		if err := json.NewDecoder(req.Body).Decode(&chirpReq); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if len(chirpReq.Body) > 140 {
+			http.Error(w, "Chirp is too long", http.StatusBadRequest)
+			return
+		}
+
+		chirpDB, err := db.CreateChirp(req.Context(), database.CreateChirpParams{
+			Body:   removeProfanity(chirpReq.Body),
+			UserID: chirpReq.UserID,
+		})
+		if err != nil {
+			http.Error(w, "Could not create chirp in db", http.StatusInternalServerError)
+		}
+
+		chirp := apiChirp{
+			ID:        chirpDB.ID,
+			CreatedAt: chirpDB.CreatedAt,
+			UpdatedAt: chirpDB.UpdatedAt,
+			Body:      chirpDB.Body,
+			UserID:    chirpDB.UserID,
+		}
+
+		log.Printf("Valid chirp from %d received and saved to db", chirp.UserID)
+		w.WriteHeader(http.StatusCreated)
+		writeResponse(chirp, w)
 	}
-
-	if len(chirp.Body) > 140 {
-		http.Error(w, "Chirp is too long", http.StatusBadRequest)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	response.Valid = true
-	response.CleanedBody = removeProfanity(chirp.Body)
-	writeResponse(response, w)
 }
 
 type createUserParams struct {
@@ -85,6 +107,8 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 			return
 		}
 
+		log.Printf("New user %s successfully created", dbUser.Email)
+
 		user := apiUser{
 			ID:        dbUser.ID,
 			CreatedAt: dbUser.CreatedAt,
@@ -113,7 +137,7 @@ func removeProfanity(text string) string {
 }
 
 type responseTypes interface {
-	chirpReturnVals | apiUser
+	apiChirp | apiUser
 }
 
 func writeResponse[T responseTypes](response T, w http.ResponseWriter) {
