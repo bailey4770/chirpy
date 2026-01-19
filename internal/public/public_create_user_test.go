@@ -13,19 +13,19 @@ import (
 func TestHandleCreateUser(t *testing.T) {
 	type createUserTestCase struct {
 		name               string
-		params             createUserParams
+		params             userRequestParams
 		expectedStatusCode int
 	}
 
 	testCases := []createUserTestCase{
 		{
 			name:               "Valid email 1",
-			params:             createUserParams{Email: "mloneusk@example.co"},
+			params:             userRequestParams{Email: "mloneusk@example.co"},
 			expectedStatusCode: 201,
 		},
 		{
 			name:               "Valid email 2",
-			params:             createUserParams{Email: "dackjorsey@example.co"},
+			params:             userRequestParams{Email: "dackjorsey@example.co"},
 			expectedStatusCode: 201,
 		},
 	}

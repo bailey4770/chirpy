@@ -84,6 +84,7 @@ func registerRoutes(mux *http.ServeMux, cfg *config.APIConfig, adminState *admin
 	mux.HandleFunc("GET /api/chirps/{chirpID}", public.HandlerFetchChirpByID(cfg.DB))
 	mux.HandleFunc("POST /api/chirps", public.HandlerPostChirp(cfg.DB))
 	mux.HandleFunc("POST /api/users", public.HandlerCreateUser(cfg.DB))
+	mux.HandleFunc("POST /api/login", public.HandlerLogin(cfg.DB))
 
 	mux.Handle("GET /admin/metrics", adminState.MiddlewareCheckAdminCreds(adminState.HandlerMetrics))
 	mux.Handle("POST /admin/reset", adminState.MiddlewareCheckAdminCreds(adminState.HandlerReset))

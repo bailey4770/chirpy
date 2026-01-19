@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/bailey4770/chirpy/internal/auth"
 	"github.com/bailey4770/chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -49,6 +50,21 @@ type chirpCreator interface {
 }
 
 func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) {
+	removeProfanity := func(text string) string {
+		profanity := []string{
+			"kerfuffle",
+			"sharbert",
+			"fornax",
+		}
+
+		for _, bw := range profanity {
+			re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(bw))
+			text = re.ReplaceAllString(text, "****")
+		}
+
+		return text
+	}
+
 	return func(w http.ResponseWriter, req *http.Request) {
 		chirpReq := chirpParams{}
 
@@ -128,8 +144,9 @@ func HandlerFetchChirpByID(db chirpFetcher) func(http.ResponseWriter, *http.Requ
 	}
 }
 
-type createUserParams struct {
-	Email string `json:"email"`
+type userRequestParams struct {
+	Password string `json:"password"`
+	Email    string `json:"email"`
 }
 
 type apiUser struct {
@@ -140,12 +157,12 @@ type apiUser struct {
 }
 
 type userCreator interface {
-	CreateUser(ctx context.Context, email string) (database.User, error)
+	CreateUser(ctx context.Context, arg database.CreateUserParams) (database.CreateUserRow, error)
 }
 
 func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		createUserReq := createUserParams{}
+		createUserReq := userRequestParams{}
 
 		if err := json.NewDecoder(req.Body).Decode(&createUserReq); err != nil {
 			log.Printf("Error: could not recode create user request to Go struct: %v", err)
@@ -153,7 +170,16 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 			return
 		}
 
-		dbUser, err := db.CreateUser(req.Context(), createUserReq.Email)
+		hashedPassword, err := auth.HashPassword(createUserReq.Password)
+		if err != nil {
+			http.Error(w, "could not hash provided password", http.StatusInternalServerError)
+			return
+		}
+
+		dbUser, err := db.CreateUser(req.Context(), database.CreateUserParams{
+			Email:          createUserReq.Email,
+			HashedPassword: hashedPassword,
+		})
 		if err != nil {
 			log.Printf("Error: could not create new user with email %s: %v", createUserReq.Email, err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -175,19 +201,44 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 	}
 }
 
-func removeProfanity(text string) string {
-	profanity := []string{
-		"kerfuffle",
-		"sharbert",
-		"fornax",
-	}
+type userRetreiver interface {
+	GetUserByEmail(ctx context.Context, email string) (database.User, error)
+}
 
-	for _, bw := range profanity {
-		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(bw))
-		text = re.ReplaceAllString(text, "****")
-	}
+func HandlerLogin(db userRetreiver) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		loginReq := userRequestParams{}
 
-	return text
+		if err := json.NewDecoder(req.Body).Decode(&loginReq); err != nil {
+			log.Printf("Error: could not recode create user request to Go struct: %v", err)
+			http.Error(w, "invalid requesy body", http.StatusBadRequest)
+			return
+		}
+
+		dbUser, err := db.GetUserByEmail(req.Context(), loginReq.Email)
+		if err != nil {
+			http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
+			return
+		}
+
+		ok, err := auth.CheckPasswordHash(loginReq.Password, dbUser.HashedPassword)
+		if err != nil || !ok {
+			http.Error(w, "Incorrect email or password", http.StatusUnauthorized)
+			return
+		}
+
+		log.Printf("User %s successfully logged in", dbUser.Email)
+
+		user := apiUser{
+			ID:        dbUser.ID,
+			CreatedAt: dbUser.CreatedAt,
+			UpdatedAt: dbUser.UpdatedAt,
+			Email:     dbUser.Email,
+		}
+
+		w.WriteHeader(http.StatusOK)
+		writeResponse(user, w)
+	}
 }
 
 type responseTypes interface {
