@@ -2,18 +2,22 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/alexedwards/argon2id"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 )
 
 func HashPassword(password string) (string, error) {
-	hashed_password, err := argon2id.CreateHash(password, argon2id.DefaultParams)
+	hashedPassword, err := argon2id.CreateHash(password, argon2id.DefaultParams)
 	if err != nil {
 		return "", fmt.Errorf("could not hash passsword: %v", err)
 	}
 
-	return hashed_password, nil
+	return hashedPassword, nil
 }
 
 func CheckPasswordHash(password, hash string) (bool, error) {
@@ -23,4 +27,48 @@ func CheckPasswordHash(password, hash string) (bool, error) {
 	}
 
 	return ok, nil
+}
+
+func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "chirpy",
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(expiresIn)),
+		Subject:   userID.String(),
+	})
+
+	tokenString, err := token.SignedString([]byte(tokenSecret))
+	if err != nil {
+		return "", fmt.Errorf("could not sign token with secret: %v", err)
+	}
+
+	return tokenString, nil
+}
+
+func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
+	token, err := jwt.ParseWithClaims(
+		tokenString,
+		&jwt.RegisteredClaims{},
+		func(token *jwt.Token) (any, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, errors.New("unexpected signing method")
+			}
+			return []byte(tokenSecret), nil
+		})
+
+	if err != nil {
+		return uuid.UUID{}, fmt.Errorf("could not parse token: %v", err)
+	} else if !token.Valid {
+		return uuid.UUID{}, errors.New("token is invalid")
+	}
+
+	if claims, ok := token.Claims.(*jwt.RegisteredClaims); ok {
+		userID, err := uuid.Parse(claims.Subject)
+		if err != nil {
+			return uuid.UUID{}, fmt.Errorf("could not parse subject field to UUID: %v", err)
+		}
+		return userID, nil
+	}
+
+	return uuid.UUID{}, errors.New("unknown claims type, cannot proceed")
 }

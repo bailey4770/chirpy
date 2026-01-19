@@ -1,6 +1,11 @@
 package auth
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+)
 
 func TestHashAndCheckPipeline(t *testing.T) {
 	type testCase struct {
@@ -34,6 +39,61 @@ func TestHashAndCheckPipeline(t *testing.T) {
 			ok, _ := CheckPasswordHash(tc.plainPassword, tc.hashedPassword)
 			if !ok {
 				t.Fatalf("Fail: plain password %s hashed to %s but comparison check failed", tc.plainPassword, tc.hashedPassword)
+			}
+		})
+	}
+}
+
+func TestJWTPipeline(t *testing.T) {
+	type testCase struct {
+		testName              string
+		userID                uuid.UUID
+		signingTokenSecret    string
+		validatingTokenSecret string
+		expiresIn             time.Duration
+		expectedError         bool
+	}
+
+	testCases := []testCase{
+		{
+			testName:              "24h token",
+			userID:                uuid.New(),
+			signingTokenSecret:    "password",
+			validatingTokenSecret: "password",
+			expiresIn:             24 * time.Hour,
+			expectedError:         false,
+		},
+		{
+			testName:              "Immediate Expiration",
+			userID:                uuid.New(),
+			signingTokenSecret:    "testing",
+			validatingTokenSecret: "testing",
+			expiresIn:             0 * time.Second,
+			expectedError:         true,
+		},
+		{
+			testName:              "Wrong validating token secret",
+			userID:                uuid.New(),
+			signingTokenSecret:    "signing secret",
+			validatingTokenSecret: "validating secret",
+			expiresIn:             1 * time.Hour,
+			expectedError:         true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			tokenString, _ := MakeJWT(tc.userID, tc.signingTokenSecret, tc.expiresIn)
+
+			returnedUserID, err := ValidateJWT(tokenString, tc.validatingTokenSecret)
+			if err != nil {
+				if !tc.expectedError {
+					t.Fatalf("Fail: unexpected error validating JWT: %v", err)
+				}
+			} else if tc.expectedError {
+				t.Fatal("Fail: expected an error validating JWT but none returned")
+			} else if returnedUserID != tc.userID {
+				t.Fatalf("Fail: expected userID to be %v but received %v", tc.userID, returnedUserID)
 			}
 		})
 	}
