@@ -10,8 +10,9 @@ import (
 )
 
 type mockDB struct {
-	users  []database.User
-	chirps []database.Chirp
+	users         []database.User
+	chirps        []database.Chirp
+	refreshTokens []database.RefreshToken
 }
 
 func (m *mockDB) CreateUser(ctx context.Context, arg database.CreateUserParams) (database.CreateUserRow, error) {
@@ -54,4 +55,16 @@ func (m *mockDB) GetUserByEmail(ctx context.Context, email string) (database.Use
 	}
 
 	return database.User{}, errors.New("could not find user in db")
+}
+
+func (m *mockDB) CreateRefreshToken(ctx context.Context, arg database.CreateRefreshTokenParams) (database.RefreshToken, error) {
+	refreshToken := database.RefreshToken{
+		Token:     arg.Token,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID:    arg.UserID,
+		ExpiresAt: time.Now().Add(60 * 24 * time.Hour),
+	}
+	m.refreshTokens = append(m.refreshTokens, refreshToken)
+	return refreshToken, nil
 }

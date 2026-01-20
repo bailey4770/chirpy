@@ -87,6 +87,8 @@ func registerRoutes(mux *http.ServeMux, cfg *config.APIConfig, adminState *admin
 	mux.HandleFunc("POST /api/chirps", public.HandlerPostChirp(cfg.DB, cfg.Secret))
 	mux.HandleFunc("POST /api/users", public.HandlerCreateUser(cfg.DB))
 	mux.HandleFunc("POST /api/login", public.HandlerLogin(cfg.DB, cfg.Secret))
+	mux.HandleFunc("POST /api/refresh", public.HandlerRefresh(cfg.DB, cfg.Secret))
+	mux.HandleFunc("POST /api/revoke", public.HandlerRevoke(cfg.DB))
 
 	mux.Handle("GET /admin/metrics", adminState.MiddlewareCheckAdminCreds(adminState.HandlerMetrics))
 	mux.Handle("POST /admin/reset", adminState.MiddlewareCheckAdminCreds(adminState.HandlerReset))

@@ -3,7 +3,6 @@ package auth
 import (
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -51,7 +50,6 @@ func TestJWTPipeline(t *testing.T) {
 		userID                uuid.UUID
 		signingTokenSecret    string
 		validatingTokenSecret string
-		expiresIn             time.Duration
 		expectedError         bool
 	}
 
@@ -61,30 +59,20 @@ func TestJWTPipeline(t *testing.T) {
 			userID:                uuid.New(),
 			signingTokenSecret:    "password",
 			validatingTokenSecret: "password",
-			expiresIn:             24 * time.Hour,
 			expectedError:         false,
-		},
-		{
-			testName:              "Immediate Expiration",
-			userID:                uuid.New(),
-			signingTokenSecret:    "testing",
-			validatingTokenSecret: "testing",
-			expiresIn:             0 * time.Second,
-			expectedError:         true,
 		},
 		{
 			testName:              "Wrong validating token secret",
 			userID:                uuid.New(),
 			signingTokenSecret:    "signing secret",
 			validatingTokenSecret: "validating secret",
-			expiresIn:             1 * time.Hour,
 			expectedError:         true,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
-			tokenString, _ := MakeJWT(tc.userID, tc.signingTokenSecret, tc.expiresIn)
+			tokenString, _ := MakeJWT(tc.userID, tc.signingTokenSecret)
 
 			returnedUserID, err := ValidateJWT(tokenString, tc.validatingTokenSecret)
 			if err != nil {

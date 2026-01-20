@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/bailey4770/chirpy/internal/auth"
 	"github.com/bailey4770/chirpy/internal/database"
@@ -73,7 +72,7 @@ func TestHandleCreateChirp(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			if testCase.token == "" {
-				testCase.token, _ = auth.MakeJWT(uuid.New(), tokenSecret, time.Hour)
+				testCase.token, _ = auth.MakeJWT(uuid.New(), tokenSecret)
 			}
 
 			reqBody, _ := json.Marshal(&testCase.params)

@@ -156,17 +156,17 @@ func HandlerFetchChirpByID(db chirpFetcher) func(http.ResponseWriter, *http.Requ
 }
 
 type userRequestParams struct {
-	Password  string        `json:"password"`
-	Email     string        `json:"email"`
-	ExpiresIn time.Duration `json:"expires_in_seconds"`
+	Password string `json:"password"`
+	Email    string `json:"email"`
 }
 
 type apiUser struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 type userCreator interface {
@@ -216,6 +216,7 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 
 type userRetreiver interface {
 	GetUserByEmail(ctx context.Context, email string) (database.User, error)
+	CreateRefreshToken(ctx context.Context, arg database.CreateRefreshTokenParams) (database.RefreshToken, error)
 }
 
 func HandlerLogin(db userRetreiver, secret string) func(http.ResponseWriter, *http.Request) {
@@ -242,23 +243,30 @@ func HandlerLogin(db userRetreiver, secret string) func(http.ResponseWriter, *ht
 
 		log.Printf("User %s successfully logged in", dbUser.Email)
 
-		expires := loginReq.ExpiresIn
-		if loginReq.ExpiresIn > time.Hour || loginReq.ExpiresIn == time.Duration(0) {
-			expires = time.Duration(time.Hour)
-		}
-
-		token, err := auth.MakeJWT(dbUser.ID, secret, expires)
+		token, err := auth.MakeJWT(dbUser.ID, secret)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
 
+		refreshToken := auth.MakeRefreshToken()
+		_, err = db.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{
+			Token:     refreshToken,
+			UserID:    dbUser.ID,
+			ExpiresAt: time.Now().Add(60 * 24 * time.Hour),
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		user := apiUser{
-			ID:        dbUser.ID,
-			CreatedAt: dbUser.CreatedAt,
-			UpdatedAt: dbUser.UpdatedAt,
-			Email:     dbUser.Email,
-			Token:     token,
+			ID:           dbUser.ID,
+			CreatedAt:    dbUser.CreatedAt,
+			UpdatedAt:    dbUser.UpdatedAt,
+			Email:        dbUser.Email,
+			Token:        token,
+			RefreshToken: refreshToken,
 		}
 
 		w.WriteHeader(http.StatusOK)
@@ -266,8 +274,68 @@ func HandlerLogin(db userRetreiver, secret string) func(http.ResponseWriter, *ht
 	}
 }
 
+type accessToken struct {
+	Token string `json:"token"`
+}
+
+type tokenRetreiver interface {
+	GetRefreshToken(ctx context.Context, token string) (database.RefreshToken, error)
+}
+
+func HandlerRefresh(db tokenRetreiver, secret string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		token, err := auth.GetBearerToken(req.Header)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		refreshToken, err := db.GetRefreshToken(req.Context(), token)
+		if err != nil {
+			http.Error(w, "could not find token in db", http.StatusUnauthorized)
+			return
+		}
+
+		if refreshToken.RevokedAt.Valid && refreshToken.RevokedAt.Time.Before(time.Now()) {
+			http.Error(w, "token has been revoked", http.StatusUnauthorized)
+			return
+		}
+
+		accessToken := accessToken{}
+		accessToken.Token, err = auth.MakeJWT(refreshToken.UserID, secret)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		writeResponse(accessToken, w)
+	}
+}
+
+type tokenRevoker interface {
+	RevokeToken(ctx context.Context, token string) error
+}
+
+func HandlerRevoke(db tokenRevoker) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		token, err := auth.GetBearerToken(req.Header)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err = db.RevokeToken(req.Context(), token); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 type responseTypes interface {
-	apiChirp | apiUser | []apiChirp
+	apiChirp | apiUser | []apiChirp | accessToken
 }
 
 func writeResponse[T responseTypes](response T, w http.ResponseWriter) {
