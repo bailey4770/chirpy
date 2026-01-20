@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -94,6 +95,76 @@ func TestJWTPipeline(t *testing.T) {
 				t.Fatal("Fail: expected an error validating JWT but none returned")
 			} else if returnedUserID != tc.userID {
 				t.Fatalf("Fail: expected userID to be %v but received %v", tc.userID, returnedUserID)
+			}
+		})
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	type testCase struct {
+		testName      string
+		headers       http.Header
+		expectedToken string
+		expectedError bool
+	}
+
+	testCases := []testCase{
+		{
+			testName: "normal token in header",
+			headers: http.Header{
+				"Authorization": []string{"Bearer 123456789"},
+				"Content-Type":  []string{"JSON"},
+			},
+			expectedToken: "123456789",
+			expectedError: false,
+		},
+		{
+			testName: "missing Bearer prefix",
+			headers: http.Header{
+				"Authorization": []string{"123456789"},
+				"Content-Type":  []string{"JSON"},
+			},
+			expectedToken: "",
+			expectedError: true,
+		},
+		{
+			testName: "small but correct header",
+			headers: http.Header{
+				"Authorization": []string{"Bearer 123456789"},
+			},
+			expectedToken: "123456789",
+			expectedError: false,
+		},
+		{
+			testName: "no Authorization header provided",
+			headers: http.Header{
+				"Content-Type": []string{"JSON"},
+			},
+			expectedToken: "",
+			expectedError: true,
+		},
+		{
+			testName: "no token provided",
+			headers: http.Header{
+				"Authorization": []string{"Bearer "},
+				"Content-Type":  []string{"JSON"},
+			},
+			expectedToken: "",
+			expectedError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			receivedToken, err := GetBearerToken(tc.headers)
+			if err != nil && !tc.expectedError {
+				t.Fatalf("Fail: expected no error but received: %v", err)
+			} else if err == nil && tc.expectedError {
+				t.Fatal("Fail: expected error but none received")
+			}
+
+			if receivedToken != tc.expectedToken {
+				t.Fatalf("Fail: expected %s but received %s token", tc.expectedToken, receivedToken)
 			}
 		})
 	}

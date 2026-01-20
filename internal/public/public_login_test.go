@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/bailey4770/chirpy/internal/auth"
 	"github.com/bailey4770/chirpy/internal/database"
@@ -17,7 +19,8 @@ func TestLogin(t *testing.T) {
 		testName         string
 		Email            string `json:"email"`
 		registerPassword string
-		LoginPassword    string `json:"password"`
+		LoginPassword    string        `json:"password"`
+		ExpiresIn        time.Duration `json:"expires_in_seconds"`
 		expectedError    bool
 	}
 
@@ -27,6 +30,7 @@ func TestLogin(t *testing.T) {
 			Email:            "user@test.com",
 			registerPassword: "pa$$word",
 			LoginPassword:    "pa$$word",
+			ExpiresIn:        time.Hour,
 			expectedError:    false,
 		},
 		{
@@ -34,11 +38,20 @@ func TestLogin(t *testing.T) {
 			Email:            "user@test.com",
 			registerPassword: "pa$$word",
 			LoginPassword:    " ",
+			ExpiresIn:        time.Hour,
 			expectedError:    true,
+		},
+		{
+			testName:         "omitted expires in field",
+			Email:            "user@test.com",
+			registerPassword: "pa$$word",
+			LoginPassword:    "pa$$word",
+			expectedError:    false,
 		},
 	}
 
 	const url = "/api/users"
+	const tokenSecret = "abcd"
 	mock := &mockDB{}
 
 	for _, tc := range testCases {
@@ -55,17 +68,20 @@ func TestLogin(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 
-			handler := HandlerLogin(mock)
+			handler := HandlerLogin(mock, tokenSecret)
 			handler(w, req)
 
 			resp := w.Result()
 			defer func() { _ = resp.Body.Close() }()
+			respBody, _ := io.ReadAll(resp.Body)
 
 			if tc.expectedError && resp.StatusCode < 400 {
-				t.Fatalf("Fail: expected to fail login but received %v status code", resp.StatusCode)
+				t.Fatalf("Fail: expected to fail login but received %v status code with message: \n%s", resp.StatusCode, respBody)
 			} else if !tc.expectedError && resp.StatusCode >= 400 {
 				t.Fatalf("Fail: expected to successfully log in but received %v status code", resp.StatusCode)
 			}
+
+			t.Logf("response body: %s", respBody)
 		})
 	}
 }

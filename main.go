@@ -65,6 +65,8 @@ func loadConfigs(db *sql.DB) (*config.APIConfig, *admin.State) {
 	dbQueries := database.New(db)
 
 	cfg := &config.APIConfig{DB: dbQueries}
+	cfg.Secret = os.Getenv("SECRET")
+
 	adminState := &admin.State{DB: dbQueries}
 	if os.Getenv("PLATFORM") == "dev" {
 		adminState.IsAdmin = true
@@ -82,9 +84,9 @@ func registerRoutes(mux *http.ServeMux, cfg *config.APIConfig, adminState *admin
 	mux.HandleFunc("GET /api/healthz", public.HandlerHealth)
 	mux.HandleFunc("GET /api/chirps", public.HandlerFetchChirpsByAge(cfg.DB))
 	mux.HandleFunc("GET /api/chirps/{chirpID}", public.HandlerFetchChirpByID(cfg.DB))
-	mux.HandleFunc("POST /api/chirps", public.HandlerPostChirp(cfg.DB))
+	mux.HandleFunc("POST /api/chirps", public.HandlerPostChirp(cfg.DB, cfg.Secret))
 	mux.HandleFunc("POST /api/users", public.HandlerCreateUser(cfg.DB))
-	mux.HandleFunc("POST /api/login", public.HandlerLogin(cfg.DB))
+	mux.HandleFunc("POST /api/login", public.HandlerLogin(cfg.DB, cfg.Secret))
 
 	mux.Handle("GET /admin/metrics", adminState.MiddlewareCheckAdminCreds(adminState.HandlerMetrics))
 	mux.Handle("POST /admin/reset", adminState.MiddlewareCheckAdminCreds(adminState.HandlerReset))

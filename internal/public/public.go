@@ -23,8 +23,7 @@ func HandlerHealth(w http.ResponseWriter, req *http.Request) {
 }
 
 type chirpParams struct {
-	Body   string    `json:"body"`
-	UserID uuid.UUID `json:"user_id"`
+	Body string `json:"body"`
 }
 
 type apiChirp struct {
@@ -49,7 +48,7 @@ type chirpCreator interface {
 	CreateChirp(ctx context.Context, arg database.CreateChirpParams) (database.Chirp, error)
 }
 
-func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) {
+func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, *http.Request) {
 	removeProfanity := func(text string) string {
 		profanity := []string{
 			"kerfuffle",
@@ -73,6 +72,18 @@ func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) 
 			return
 		}
 
+		token, err := auth.GetBearerToken(req.Header)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		tokenUserID, err := auth.ValidateJWT(token, secret)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
 		if len(chirpReq.Body) > 140 {
 			http.Error(w, "Chirp is too long", http.StatusBadRequest)
 			return
@@ -80,7 +91,7 @@ func HandlerPostChirp(db chirpCreator) func(http.ResponseWriter, *http.Request) 
 
 		dbChirp, err := db.CreateChirp(req.Context(), database.CreateChirpParams{
 			Body:   removeProfanity(chirpReq.Body),
-			UserID: chirpReq.UserID,
+			UserID: tokenUserID,
 		})
 		if err != nil {
 			http.Error(w, "Could not create chirp in db", http.StatusInternalServerError)
@@ -145,8 +156,9 @@ func HandlerFetchChirpByID(db chirpFetcher) func(http.ResponseWriter, *http.Requ
 }
 
 type userRequestParams struct {
-	Password string `json:"password"`
-	Email    string `json:"email"`
+	Password  string        `json:"password"`
+	Email     string        `json:"email"`
+	ExpiresIn time.Duration `json:"expires_in_seconds"`
 }
 
 type apiUser struct {
@@ -154,6 +166,7 @@ type apiUser struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
 }
 
 type userCreator interface {
@@ -205,13 +218,13 @@ type userRetreiver interface {
 	GetUserByEmail(ctx context.Context, email string) (database.User, error)
 }
 
-func HandlerLogin(db userRetreiver) func(http.ResponseWriter, *http.Request) {
+func HandlerLogin(db userRetreiver, secret string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		loginReq := userRequestParams{}
 
 		if err := json.NewDecoder(req.Body).Decode(&loginReq); err != nil {
-			log.Printf("Error: could not recode create user request to Go struct: %v", err)
-			http.Error(w, "invalid requesy body", http.StatusBadRequest)
+			log.Printf("Error: could not decode json: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
 
@@ -229,11 +242,23 @@ func HandlerLogin(db userRetreiver) func(http.ResponseWriter, *http.Request) {
 
 		log.Printf("User %s successfully logged in", dbUser.Email)
 
+		expires := loginReq.ExpiresIn
+		if loginReq.ExpiresIn > time.Hour || loginReq.ExpiresIn == time.Duration(0) {
+			expires = time.Duration(time.Hour)
+		}
+
+		token, err := auth.MakeJWT(dbUser.ID, secret, expires)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
 		user := apiUser{
 			ID:        dbUser.ID,
 			CreatedAt: dbUser.CreatedAt,
 			UpdatedAt: dbUser.UpdatedAt,
 			Email:     dbUser.Email,
+			Token:     token,
 		}
 
 		w.WriteHeader(http.StatusOK)

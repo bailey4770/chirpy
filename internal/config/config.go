@@ -6,11 +6,6 @@ import (
 )
 
 type APIConfig struct {
-	DB *database.Queries
-}
-
-func New(dbQueries *database.Queries) *APIConfig {
-	return &APIConfig{
-		DB: dbQueries,
-	}
+	DB     *database.Queries
+	Secret string
 }
