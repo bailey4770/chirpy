@@ -107,8 +107,7 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 }
 
 type chirpStore interface {
-	FetchChirpsByAge(ctx context.Context) ([]database.Chirp, error)
-	FetchChirpsFromUserByAge(ctx context.Context, userID uuid.UUID) ([]database.Chirp, error)
+	FetchChirpsWithOptionalParams(ctx context.Context, arg database.FetchChirpsWithOptionalParamsParams) ([]database.Chirp, error)
 	FetchChirpByID(ctx context.Context, id uuid.UUID) (database.Chirp, error)
 	DeleteChirp(ctx context.Context, id uuid.UUID) error
 }
@@ -117,27 +116,29 @@ func HandlerFetchChirpsByAge(db chirpStore) func(http.ResponseWriter, *http.Requ
 	return func(w http.ResponseWriter, req *http.Request) {
 		authorIDString := req.URL.Query().Get("author_id")
 
-		var dbChirps []database.Chirp
+		var authorID uuid.UUID
 		if authorIDString != "" {
-			authorID, err := uuid.Parse(authorIDString)
+			var err error
+			authorID, err = uuid.Parse(authorIDString)
 			if err != nil {
 				http.Error(w, "could not find any chirps from provided user", http.StatusBadRequest)
 				return
 			}
+		}
 
-			dbChirps, err = db.FetchChirpsFromUserByAge(req.Context(), authorID)
-			if err != nil {
-				http.Error(w, "could not fetch chirps from provided userID from db", http.StatusInternalServerError)
-				return
-			}
+		orderBy := req.URL.Query().Get("sort")
+		if orderBy != "asc" && orderBy != "desc" {
+			orderBy = "asc"
+		}
 
-		} else {
-			var err error
-			dbChirps, err = db.FetchChirpsByAge(req.Context())
-			if err != nil {
-				http.Error(w, "could not fetch chirps from db", http.StatusInternalServerError)
-				return
-			}
+		dbChirps, err := db.FetchChirpsWithOptionalParams(req.Context(), database.FetchChirpsWithOptionalParamsParams{
+			Column1: authorID,
+			Column2: orderBy,
+		})
+		if err != nil {
+			log.Printf("Error: could not fetch chirps from [optional] %v sorted by [optional] %v: %v", authorID, orderBy, err)
+			http.Error(w, "could not fetch chirps", http.StatusNotFound)
+			return
 		}
 
 		chirps := []apiChirp{}

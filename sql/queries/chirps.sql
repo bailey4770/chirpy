@@ -3,14 +3,13 @@ INSERT INTO chirps (created_at, updated_at, body, user_id)
 VALUES (NOW(), NOW(), $1, $2)
 RETURNING *;
 
--- name: FetchChirpsByAge :many
+-- name: FetchChirpsWithOptionalParams :many
 SELECT * FROM chirps
-ORDER BY created_at ASC;
-
--- name: FetchChirpsFromUserByAge :many
-SELECT * FROM chirps
-WHERE user_id = $1
-ORDER BY created_at ASC;
+WHERE (NULLIF($1::uuid, '00000000-0000-0000-0000-000000000000') IS NULL
+       OR user_id = $1)
+ORDER BY
+  CASE WHEN $2 = 'asc'  THEN created_at END ASC,
+  CASE WHEN $2 = 'desc' THEN created_at END DESC;
 
 -- name: FetchChirpByID :one
 SELECT * FROM chirps

@@ -63,48 +63,22 @@ func (q *Queries) FetchChirpByID(ctx context.Context, id uuid.UUID) (Chirp, erro
 	return i, err
 }
 
-const fetchChirpsByAge = `-- name: FetchChirpsByAge :many
+const fetchChirpsWithOptionalParams = `-- name: FetchChirpsWithOptionalParams :many
 SELECT id, created_at, updated_at, body, user_id FROM chirps
-ORDER BY created_at ASC
+WHERE (NULLIF($1::uuid, '00000000-0000-0000-0000-000000000000') IS NULL
+       OR user_id = $1)
+ORDER BY
+  CASE WHEN $2 = 'asc'  THEN created_at END ASC,
+  CASE WHEN $2 = 'desc' THEN created_at END DESC
 `
 
-func (q *Queries) FetchChirpsByAge(ctx context.Context) ([]Chirp, error) {
-	rows, err := q.db.QueryContext(ctx, fetchChirpsByAge)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Chirp
-	for rows.Next() {
-		var i Chirp
-		if err := rows.Scan(
-			&i.ID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Body,
-			&i.UserID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type FetchChirpsWithOptionalParamsParams struct {
+	Column1 uuid.UUID
+	Column2 interface{}
 }
 
-const fetchChirpsFromUserByAge = `-- name: FetchChirpsFromUserByAge :many
-SELECT id, created_at, updated_at, body, user_id FROM chirps
-WHERE user_id = $1
-ORDER BY created_at ASC
-`
-
-func (q *Queries) FetchChirpsFromUserByAge(ctx context.Context, userID uuid.UUID) ([]Chirp, error) {
-	rows, err := q.db.QueryContext(ctx, fetchChirpsFromUserByAge, userID)
+func (q *Queries) FetchChirpsWithOptionalParams(ctx context.Context, arg FetchChirpsWithOptionalParamsParams) ([]Chirp, error) {
+	rows, err := q.db.QueryContext(ctx, fetchChirpsWithOptionalParams, arg.Column1, arg.Column2)
 	if err != nil {
 		return nil, err
 	}
