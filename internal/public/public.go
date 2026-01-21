@@ -108,16 +108,36 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 
 type chirpStore interface {
 	FetchChirpsByAge(ctx context.Context) ([]database.Chirp, error)
+	FetchChirpsFromUserByAge(ctx context.Context, userID uuid.UUID) ([]database.Chirp, error)
 	FetchChirpByID(ctx context.Context, id uuid.UUID) (database.Chirp, error)
 	DeleteChirp(ctx context.Context, id uuid.UUID) error
 }
 
 func HandlerFetchChirpsByAge(db chirpStore) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		dbChirps, err := db.FetchChirpsByAge(req.Context())
-		if err != nil {
-			http.Error(w, "could not fetch chirps from db", http.StatusInternalServerError)
-			return
+		authorIDString := req.URL.Query().Get("author_id")
+
+		var dbChirps []database.Chirp
+		if authorIDString != "" {
+			authorID, err := uuid.Parse(authorIDString)
+			if err != nil {
+				http.Error(w, "could not find any chirps from provided user", http.StatusBadRequest)
+				return
+			}
+
+			dbChirps, err = db.FetchChirpsFromUserByAge(req.Context(), authorID)
+			if err != nil {
+				http.Error(w, "could not fetch chirps from provided userID from db", http.StatusInternalServerError)
+				return
+			}
+
+		} else {
+			var err error
+			dbChirps, err = db.FetchChirpsByAge(req.Context())
+			if err != nil {
+				http.Error(w, "could not fetch chirps from db", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		chirps := []apiChirp{}
