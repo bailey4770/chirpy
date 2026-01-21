@@ -1,16 +1,23 @@
 # Chirpy API
 
-Chirpy is a lightweight microblogging API. It provides user authentication, chirp creation, retrieval, deletion, and an admin interface for metrics and maintenance.
+Chirpy is a lightweight microblogging API. It provides user authentication,
+chirp creation, retrieval, deletion, and an admin interface for metrics and maintenance.
+
+Chirpy is currently not hosted, as it is intended only as a project for learning
+HTTP server basics in Go.
+
+This project utilises a postgreSQL database to store users and chirps,
+which are short public text posts.
+API endpoints serve as HTTP wrappers to access this database.
+
+This project is also my first interaction with JWTs,
+and these are used to authorize users whenever calls are made to the API.
+
+See documentation below.
 
 ---
 
-## Base URL
-
-`http://<host>:<port>`
-
----
-
-## Endpoints
+## Public Endpoints
 
 ### Health
 
@@ -18,13 +25,13 @@ Chirpy is a lightweight microblogging API. It provides user authentication, chir
 
 **Response**
 
-- `200 OK` — `OK`
+`200 OK`
 
 ---
 
-## Users
+### Users
 
-### Create User
+#### Create User
 
 `POST /api/users`
 
@@ -51,9 +58,10 @@ Chirpy is a lightweight microblogging API. It provides user authentication, chir
 }
 ```
 
-### Update Email & Password
+#### Update Email & Password
 
 `PUT /api/users`
+
 Requires authentication.
 
 **Request**
@@ -76,25 +84,21 @@ Requires authentication.
 }
   ```
 
-## Authentication
+### Authentication
 
-### Access Tokens (JWT)
+#### Access Tokens (JWT)
 
 Most user endpoints require a JWT access token in the `Authorization` header:
 
 `Authorization: Bearer <token>`
 
-### Refresh Tokens
+#### Refresh Tokens
 
 Refresh tokens are also passed via `Authorization`:
 
 `Authorization: Bearer <refresh_token>`
 
-### Admin
-
-Admin endpoints are protected by a server-side `IsAdmin` flag.
-
-### Login
+#### Login
 
 `POST /api/login`
 
@@ -123,7 +127,7 @@ Admin endpoints are protected by a server-side `IsAdmin` flag.
 }
   ```
 
-#### Curl Example
+##### Curl Example
 
 ```
 curl -X POST /api/login \
@@ -131,7 +135,7 @@ curl -X POST /api/login \
   -d '{"email":"<user@example.com>","password":"password123"}'
 ```
 
-### Refresh Access Token
+#### Refresh Access Token
 
 `POST /api/refresh`
 
@@ -147,7 +151,7 @@ Requires refresh token in Authorization.
 }
 ```
 
-### Revoke Refresh Token
+#### Revoke Refresh Token
 
 `POST /api/revoke`
 
@@ -157,9 +161,9 @@ Requires refresh token in Authorization.
 
 `204 No Content`
 
-## Chirps
+### Chirps
 
-### Create Chirp
+#### Create Chirp
 
 `POST /api/chirps`
 
@@ -187,7 +191,7 @@ Requires authentication. Chirps are limited to 140 characters and certain profan
 }
   ```
 
-#### Curl Example
+##### Curl Example
 
 ```
 curl -X POST /api/chirps \
@@ -196,7 +200,7 @@ curl -X POST /api/chirps \
   -d '{"body":"Hello, Chirpy!"}'
 ```
 
-### Fetch Chirps
+#### Fetch Chirps
 
 `GET /api/chirps`
 
@@ -222,23 +226,21 @@ Response
 }
   ```
 
-#### Curl Example
+##### Curl Example
 
 `curl /api/chirps?sort=desc`
 
-### Fetch Chirp by ID
+#### Fetch Chirp by ID
 
 `GET /api/chirps/{chirpID}`
 
 **Response**
 
-```
-200 OK (chirp object)
+`200 OK` (chirp object)
 
-404 Not Found
-```
+`404 Not Found`
 
-### Delete Chirp
+#### Delete Chirp
 
 `DELETE /api/chirps/{chirpID}`
 
@@ -247,9 +249,11 @@ Requires authentication. Only the chirp owner may delete.
 **Response**
 
 ```
+
 204 No Content
 
 403 Forbidden if not the owner
+
 ```
 
 ## Webhooks
@@ -275,13 +279,13 @@ Requires an API key in the Authorization header.
 
 `204 No Content`
 
-## Admin
+## Admin Endpoints
+
+Admin endpoints are protected by a server-side `IsAdmin` flag.
 
 ### Metrics
 
 `GET /admin/metrics`
-
-Admin-only.
 
 **Response**
 
@@ -291,7 +295,7 @@ Admin-only.
 
 `POST /admin/reset`
 
-Admin-only. Deletes all users.
+Deletes all users.
 
 **Response**
 
@@ -303,10 +307,25 @@ Code | Meaning
 ---
 
 200 | OK
+---
+
 201 | Created
+---
+
 204 | No Content
+---
+
 400 | Bad Request
+---
+
 401 | Unauthorized
+---
+
 403 | Forbidden
+---
+
 404 | Not Found
+---
+
 500 | Internal Server Error
+---
