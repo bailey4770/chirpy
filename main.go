@@ -66,6 +66,7 @@ func loadConfigs(db *sql.DB) (*config.APIConfig, *admin.State) {
 
 	cfg := &config.APIConfig{DB: dbQueries}
 	cfg.Secret = os.Getenv("SECRET")
+	cfg.PolkaKey = os.Getenv("POLKA_KEY")
 
 	adminState := &admin.State{DB: dbQueries}
 	if os.Getenv("PLATFORM") == "dev" {
@@ -94,7 +95,7 @@ func registerRoutes(mux *http.ServeMux, cfg *config.APIConfig, adminState *admin
 	mux.HandleFunc("POST /api/login", public.HandlerLogin(cfg.DB, cfg.Secret))
 	mux.HandleFunc("POST /api/refresh", public.HandlerRefresh(cfg.DB, cfg.Secret))
 	mux.HandleFunc("POST /api/revoke", public.HandlerRevoke(cfg.DB))
-	mux.HandleFunc("POST /api/polka/webhooks", public.HandlerUpgradeUser(cfg.DB))
+	mux.HandleFunc("POST /api/polka/webhooks", public.HandlerUpgradeUser(cfg.DB, cfg.PolkaKey))
 
 	mux.Handle("GET /admin/metrics", adminState.MiddlewareCheckAdminCreds(adminState.HandlerMetrics))
 	mux.Handle("POST /admin/reset", adminState.MiddlewareCheckAdminCreds(adminState.HandlerReset))

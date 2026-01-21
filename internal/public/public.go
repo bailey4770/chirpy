@@ -236,7 +236,6 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 		})
 		if err != nil {
 			log.Printf("Error: could not create new user with email %s: %v", createUserReq.Email, err)
-			w.WriteHeader(http.StatusInternalServerError)
 			http.Error(w, "databse could not create new user with email %s", http.StatusInternalServerError)
 			return
 		}
@@ -267,10 +266,16 @@ type userUpgrader interface {
 	MakeUserRed(ctx context.Context, id uuid.UUID) error
 }
 
-func HandlerUpgradeUser(db userUpgrader) func(http.ResponseWriter, *http.Request) {
+func HandlerUpgradeUser(db userUpgrader, polkaKey string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		upgradeReq := polkaWebhook{}
+		apiKey, err := auth.GetAPIKey(req.Header)
+		if err != nil || apiKey != polkaKey {
+			log.Printf("Error: %v", err)
+			http.Error(w, "invalid api key in authorisation header", http.StatusUnauthorized)
+			return
+		}
 
+		upgradeReq := polkaWebhook{}
 		if err := json.NewDecoder(req.Body).Decode(&upgradeReq); err != nil {
 			log.Printf("Error: could not decode json: %v", err)
 			http.Error(w, "invalid request body", http.StatusBadRequest)

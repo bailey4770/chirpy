@@ -6,6 +6,7 @@ import (
 )
 
 type APIConfig struct {
-	DB     *database.Queries
-	Secret string
+	DB       *database.Queries
+	Secret   string
+	PolkaKey string
 }
