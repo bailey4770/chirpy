@@ -83,9 +83,12 @@ func registerRoutes(mux *http.ServeMux, cfg *config.APIConfig, adminState *admin
 	)
 
 	mux.HandleFunc("GET /api/healthz", public.HandlerHealth)
+
 	mux.HandleFunc("GET /api/chirps", public.HandlerFetchChirpsByAge(cfg.DB))
 	mux.HandleFunc("GET /api/chirps/{chirpID}", public.HandlerFetchChirpByID(cfg.DB))
 	mux.HandleFunc("POST /api/chirps", public.HandlerPostChirp(cfg.DB, cfg.Secret))
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", public.HandlerDeleteChirp(cfg.DB, cfg.Secret))
+
 	mux.HandleFunc("POST /api/users", public.HandlerCreateUser(cfg.DB))
 	mux.HandleFunc("PUT /api/users", public.HandlerUpdateEmailAndPassword(cfg.DB, cfg.Secret))
 	mux.HandleFunc("POST /api/login", public.HandlerLogin(cfg.DB, cfg.Secret))

@@ -77,7 +77,7 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 			return
 		}
 
-		tokenUserID, err := auth.ValidateJWT(token, secret)
+		userID, err := auth.ValidateJWT(token, secret)
 		if err != nil {
 			log.Printf("Error: could not validate JWT: %v", err)
 			http.Error(w, "could not validate JWT", http.StatusUnauthorized)
@@ -91,7 +91,7 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 
 		dbChirp, err := db.CreateChirp(req.Context(), database.CreateChirpParams{
 			Body:   removeProfanity(chirpReq.Body),
-			UserID: tokenUserID,
+			UserID: userID,
 		})
 		if err != nil {
 			http.Error(w, "Could not create chirp in db", http.StatusInternalServerError)
@@ -100,18 +100,19 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 
 		chirp := dbChirpToAPIChirp(dbChirp)
 
-		log.Printf("Valid chirp from %d received and saved to db", chirp.UserID)
+		log.Printf("User %v successfully posted chirp %v", userID, dbChirp.ID)
 		w.WriteHeader(http.StatusCreated)
 		writeResponse(chirp, w)
 	}
 }
 
-type chirpRetreiver interface {
+type chirpStore interface {
 	FetchChirpsByAge(ctx context.Context) ([]database.Chirp, error)
 	FetchChirpByID(ctx context.Context, id uuid.UUID) (database.Chirp, error)
+	DeleteChirp(ctx context.Context, id uuid.UUID) error
 }
 
-func HandlerFetchChirpsByAge(db chirpRetreiver) func(http.ResponseWriter, *http.Request) {
+func HandlerFetchChirpsByAge(db chirpStore) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		dbChirps, err := db.FetchChirpsByAge(req.Context())
 		if err != nil {
@@ -124,13 +125,12 @@ func HandlerFetchChirpsByAge(db chirpRetreiver) func(http.ResponseWriter, *http.
 			chirps = append(chirps, dbChirpToAPIChirp(dbChirp))
 		}
 
-		log.Print("All chirps fetched from db")
 		w.WriteHeader(http.StatusOK)
 		writeResponse(chirps, w)
 	}
 }
 
-func HandlerFetchChirpByID(db chirpRetreiver) func(http.ResponseWriter, *http.Request) {
+func HandlerFetchChirpByID(db chirpStore) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		chirpID, err := uuid.Parse(req.PathValue("chirpID"))
 		if err != nil {
@@ -146,9 +146,52 @@ func HandlerFetchChirpByID(db chirpRetreiver) func(http.ResponseWriter, *http.Re
 
 		chirp := dbChirpToAPIChirp(dbChirp)
 
-		log.Print("Chirp fetched from db")
+		log.Printf("Chirp %v successfully requested ", chirpID)
 		w.WriteHeader(http.StatusOK)
 		writeResponse(chirp, w)
+	}
+}
+
+func HandlerDeleteChirp(db chirpStore, secret string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		token, err := auth.GetBearerToken(req.Header)
+		if err != nil {
+			http.Error(w, "could not get bearer token from header", http.StatusUnauthorized)
+			return
+		}
+
+		userID, err := auth.ValidateJWT(token, secret)
+		if err != nil {
+			log.Printf("Error: could not validate JWT: %v", err)
+			http.Error(w, "could not validate JWT", http.StatusUnauthorized)
+			return
+		}
+
+		chirpID, err := uuid.Parse(req.PathValue("chirpID"))
+		if err != nil {
+			http.Error(w, "could not parse chirp ID to uuid", http.StatusBadRequest)
+			return
+		}
+
+		dbChirp, err := db.FetchChirpByID(req.Context(), chirpID)
+		if err != nil {
+			http.Error(w, "could not fetch requested chirp", http.StatusNotFound)
+			return
+		}
+
+		if userID != dbChirp.UserID {
+			http.Error(w, "request user ID does not match chirp's user ID", http.StatusForbidden)
+			return
+		}
+
+		if err = db.DeleteChirp(req.Context(), dbChirp.ID); err != nil {
+			log.Printf("Error: could not delete chirp from db: %v", err)
+			http.Error(w, "could no delete chirp from db", http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("Warning: chirp %v successfully deleted by %v", chirpID, userID)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
