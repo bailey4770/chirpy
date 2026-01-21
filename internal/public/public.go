@@ -207,6 +207,7 @@ type apiUser struct {
 	Email        string    `json:"email"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 type userCreator interface {
@@ -243,14 +244,52 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 		log.Printf("New user %s successfully created", dbUser.Email)
 
 		user := apiUser{
-			ID:        dbUser.ID,
-			CreatedAt: dbUser.CreatedAt,
-			UpdatedAt: dbUser.UpdatedAt,
-			Email:     dbUser.Email,
+			ID:          dbUser.ID,
+			CreatedAt:   dbUser.CreatedAt,
+			UpdatedAt:   dbUser.UpdatedAt,
+			Email:       dbUser.Email,
+			IsChirpyRed: dbUser.IsChirpyRed,
 		}
 
 		w.WriteHeader(http.StatusCreated)
 		writeResponse(user, w)
+	}
+}
+
+type polkaWebhook struct {
+	Event string `json:"event"`
+	Data  struct {
+		UserID uuid.UUID `json:"user_id"`
+	} `json:"data"`
+}
+
+type userUpgrader interface {
+	MakeUserRed(ctx context.Context, id uuid.UUID) error
+}
+
+func HandlerUpgradeUser(db userUpgrader) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		upgradeReq := polkaWebhook{}
+
+		if err := json.NewDecoder(req.Body).Decode(&upgradeReq); err != nil {
+			log.Printf("Error: could not decode json: %v", err)
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if upgradeReq.Event != "user.upgraded" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		if err := db.MakeUserRed(req.Context(), upgradeReq.Data.UserID); err != nil {
+			log.Printf("Error: could not upgrade user %v: %v", upgradeReq.Data.UserID, err)
+			http.Error(w, "could not find user", http.StatusNotFound)
+			return
+		}
+
+		log.Printf("User %v succesffully upgraded to red", upgradeReq.Data.UserID)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -312,6 +351,7 @@ func HandlerLogin(db authStore, secret string) func(http.ResponseWriter, *http.R
 			Email:        dbUser.Email,
 			Token:        token,
 			RefreshToken: refreshToken,
+			IsChirpyRed:  dbUser.IsChirpyRed,
 		}
 
 		w.WriteHeader(http.StatusOK)
