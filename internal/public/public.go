@@ -106,11 +106,12 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 	}
 }
 
-type allChirpsFetcher interface {
+type chirpRetreiver interface {
 	FetchChirpsByAge(ctx context.Context) ([]database.Chirp, error)
+	FetchChirpByID(ctx context.Context, id uuid.UUID) (database.Chirp, error)
 }
 
-func HandlerFetchChirpsByAge(db allChirpsFetcher) func(http.ResponseWriter, *http.Request) {
+func HandlerFetchChirpsByAge(db chirpRetreiver) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		dbChirps, err := db.FetchChirpsByAge(req.Context())
 		if err != nil {
@@ -129,11 +130,7 @@ func HandlerFetchChirpsByAge(db allChirpsFetcher) func(http.ResponseWriter, *htt
 	}
 }
 
-type chirpFetcher interface {
-	FetchChirpByID(ctx context.Context, id uuid.UUID) (database.Chirp, error)
-}
-
-func HandlerFetchChirpByID(db chirpFetcher) func(http.ResponseWriter, *http.Request) {
+func HandlerFetchChirpByID(db chirpRetreiver) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		chirpID, err := uuid.Parse(req.PathValue("chirpID"))
 		if err != nil {
@@ -214,12 +211,14 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 	}
 }
 
-type userRetreiver interface {
+type authStore interface {
 	GetUserByEmail(ctx context.Context, email string) (database.User, error)
 	CreateRefreshToken(ctx context.Context, arg database.CreateRefreshTokenParams) (database.RefreshToken, error)
+	GetRefreshToken(ctx context.Context, token string) (database.RefreshToken, error)
+	RevokeRefreshToken(ctx context.Context, token string) error
 }
 
-func HandlerLogin(db userRetreiver, secret string) func(http.ResponseWriter, *http.Request) {
+func HandlerLogin(db authStore, secret string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		loginReq := userRequestParams{}
 
@@ -245,7 +244,8 @@ func HandlerLogin(db userRetreiver, secret string) func(http.ResponseWriter, *ht
 
 		token, err := auth.MakeJWT(dbUser.ID, secret)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+			log.Printf("Error: could not make JWT: %v", err)
+			http.Error(w, "could not make JWT", http.StatusInternalServerError)
 			return
 		}
 
@@ -256,7 +256,8 @@ func HandlerLogin(db userRetreiver, secret string) func(http.ResponseWriter, *ht
 			ExpiresAt: time.Now().Add(60 * 24 * time.Hour),
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("Error: could not create refresh token: %v", err)
+			http.Error(w, "could not create refresh token", http.StatusInternalServerError)
 			return
 		}
 
@@ -278,15 +279,11 @@ type accessToken struct {
 	Token string `json:"token"`
 }
 
-type tokenRetreiver interface {
-	GetRefreshToken(ctx context.Context, token string) (database.RefreshToken, error)
-}
-
-func HandlerRefresh(db tokenRetreiver, secret string) func(http.ResponseWriter, *http.Request) {
+func HandlerRefresh(db authStore, secret string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		token, err := auth.GetBearerToken(req.Header)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "could not get bearer token from header", http.StatusBadRequest)
 			return
 		}
 
@@ -296,7 +293,7 @@ func HandlerRefresh(db tokenRetreiver, secret string) func(http.ResponseWriter, 
 			return
 		}
 
-		if refreshToken.RevokedAt.Valid && refreshToken.RevokedAt.Time.Before(time.Now()) {
+		if refreshToken.RevokedAt.Valid {
 			http.Error(w, "token has been revoked", http.StatusUnauthorized)
 			return
 		}
@@ -304,7 +301,8 @@ func HandlerRefresh(db tokenRetreiver, secret string) func(http.ResponseWriter, 
 		accessToken := accessToken{}
 		accessToken.Token, err = auth.MakeJWT(refreshToken.UserID, secret)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("Error: could not make JWT: %v", err)
+			http.Error(w, "could not make JWT", http.StatusInternalServerError)
 			return
 		}
 
@@ -313,20 +311,17 @@ func HandlerRefresh(db tokenRetreiver, secret string) func(http.ResponseWriter, 
 	}
 }
 
-type tokenRevoker interface {
-	RevokeToken(ctx context.Context, token string) error
-}
-
-func HandlerRevoke(db tokenRevoker) func(http.ResponseWriter, *http.Request) {
+func HandlerRevoke(db authStore) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		token, err := auth.GetBearerToken(req.Header)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, "could not get bearer token from header", http.StatusBadRequest)
 			return
 		}
 
-		if err = db.RevokeToken(req.Context(), token); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if err = db.RevokeRefreshToken(req.Context(), token); err != nil {
+			log.Printf("Error: could not revoke token: %v", err)
+			http.Error(w, "could not revoke token", http.StatusInternalServerError)
 			return
 		}
 

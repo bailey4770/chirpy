@@ -2,27 +2,46 @@ package public
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/bailey4770/chirpy/internal/auth"
 	"github.com/bailey4770/chirpy/internal/database"
 	"github.com/google/uuid"
 )
 
+type mockChirpDB struct {
+	chirps []database.Chirp
+}
+
+func (m *mockChirpDB) CreateChirp(ctx context.Context, arg database.CreateChirpParams) (database.Chirp, error) {
+	chirp := database.Chirp{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Body:      arg.Body,
+		UserID:    arg.UserID,
+	}
+	m.chirps = append(m.chirps, chirp)
+	return chirp, nil
+}
+
 func TestHandleCreateChirp(t *testing.T) {
-	type validateChirpTestCase struct {
+	type chirpTestCase struct {
 		name               string
 		params             chirpParams
 		token              string
 		expectedStatusCode int
 		expectedBody       string
 	}
-	testCases := []validateChirpTestCase{
+
+	testCases := []chirpTestCase{
 		{
 			name: "Valid chirp",
 			params: chirpParams{
@@ -60,26 +79,26 @@ func TestHandleCreateChirp(t *testing.T) {
 			params: chirpParams{
 				Body: "I had something interesting for breakfast",
 			},
-			token:              "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjaGlycHkiLCJzdWIiOiIyOWViYTcxYS1mN2Y1LTRhYWYtYTFiNi01ZmFmNTIyY2ExNGYiLCJleHAiOjE3Njg5MjU1MTEsImlhdCI6MTc2ODkyMTkxMX0.UNMejxVMCRl1V0fGXCfNDYEP61c-1JQjCp17_9Mh2NE",
+			token:              "invalid.jwt.token",
 			expectedStatusCode: 401,
 		},
 	}
 
 	const url = "/api/chirps"
 	const tokenSecret = "abcd"
-	mock := &mockDB{}
+	mock := &mockChirpDB{}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if testCase.token == "" {
-				testCase.token, _ = auth.MakeJWT(uuid.New(), tokenSecret)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.token == "" {
+				tc.token, _ = auth.MakeJWT(uuid.New(), tokenSecret)
 			}
 
-			reqBody, _ := json.Marshal(&testCase.params)
+			reqBody, _ := json.Marshal(&tc.params)
 			req := httptest.NewRequest(http.MethodPost, url, bytes.NewReader(reqBody))
 
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", testCase.token))
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tc.token))
 
 			w := httptest.NewRecorder()
 
@@ -91,8 +110,8 @@ func TestHandleCreateChirp(t *testing.T) {
 			respBody, _ := io.ReadAll(resp.Body)
 
 			if resp.StatusCode >= 400 {
-				if resp.StatusCode != testCase.expectedStatusCode {
-					t.Fatalf("Fail: expected response status code %d but received %d with message: \n%s", testCase.expectedStatusCode, resp.StatusCode, respBody)
+				if resp.StatusCode != tc.expectedStatusCode {
+					t.Fatalf("Fail: expected response status code %d but received %d with message: \n%s", tc.expectedStatusCode, resp.StatusCode, respBody)
 				} else {
 					return
 				}
@@ -103,8 +122,8 @@ func TestHandleCreateChirp(t *testing.T) {
 				t.Fatalf("Error: could not unmarshal response: %v", err)
 			}
 
-			if response.Body != testCase.expectedBody {
-				t.Fatalf("Fail: expected cleaned body %s but recieved %s", testCase.expectedBody, response.Body)
+			if response.Body != tc.expectedBody {
+				t.Fatalf("Fail: expected cleaned body %s but recieved %s", tc.expectedBody, response.Body)
 			}
 		})
 	}
