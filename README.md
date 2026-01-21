@@ -7,11 +7,11 @@ Chirpy is currently not hosted, as it is intended only as a project for learning
 HTTP server basics in Go.
 
 This project utilises a postgreSQL database to store users and chirps,
-which are short public text posts.
+which are short, public text posts.
 API endpoints serve as HTTP wrappers to access this database.
 
-This project is also my first interaction with JWTs,
-and these are used to authorize users whenever calls are made to the API.
+This project is also my first interaction with JWTs.
+These are used to authorize users whenever a call is made to the API.
 
 See documentation below.
 
@@ -206,11 +206,9 @@ curl -X POST /api/chirps \
 
 **Query Parameters**
 
-```
-author_id (optional): UUID
+`author_id (optional): UUID`
 
-sort (optional): asc (default) or desc
-```
+`sort (optional): asc (default) or desc`
 
 Response
 
@@ -248,13 +246,9 @@ Requires authentication. Only the chirp owner may delete.
 
 **Response**
 
-```
+`204 No Content`
 
-204 No Content
-
-403 Forbidden if not the owner
-
-```
+`403 Forbidden if not the owner`
 
 ## Webhooks
 
@@ -263,6 +257,8 @@ Requires authentication. Only the chirp owner may delete.
 `POST /api/polka/webhooks`
 
 Requires an API key in the Authorization header.
+Upgrades a user's account to premium.
+Polka is a fictional 3rd party payment authentication service.
 
 **Request**
 
