@@ -21,6 +21,41 @@ type mockAuthDB struct {
 	refreshTokens []database.RefreshToken
 }
 
+// --- integration test ---
+
+func TestAuthPipeline(t *testing.T) {
+	const (
+		email       = "user@test.com"
+		password    = "pa$$word"
+		newEmail    = "new@test.com"
+		newPassword = "newpa$$word"
+		secret      = "abcd"
+
+		loginURL   = "/api/login"
+		updateURL  = "/api/users"
+		refreshURL = "/api/refresh"
+		revokeURL  = "/api/revoke"
+	)
+
+	ctx := authTestCtx{
+		t:      t,
+		db:     &mockAuthDB{},
+		secret: secret,
+	}
+
+	seedUser(ctx, email, password)
+
+	loginResp := login(ctx, email, password, loginURL, http.StatusOK)
+	updateUser(ctx, loginResp.Token, newEmail, newPassword, updateURL)
+
+	login(ctx, newEmail, password, loginURL, http.StatusUnauthorized)
+	newLogin := login(ctx, newEmail, newPassword, loginURL, http.StatusOK)
+
+	refresh(ctx, newLogin.RefreshToken, refreshURL, http.StatusOK)
+	revoke(ctx, newLogin.RefreshToken, revokeURL)
+	refresh(ctx, newLogin.RefreshToken, refreshURL, http.StatusUnauthorized)
+}
+
 // --- users ---
 
 func (m *mockAuthDB) GetUserByEmail(ctx context.Context, email string) (database.User, error) {
@@ -49,6 +84,22 @@ func (m *mockAuthDB) CreateUser(ctx context.Context, arg database.CreateUserPara
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 	}, nil
+}
+
+func (m *mockAuthDB) UpdateEmailAndPassword(
+	ctx context.Context,
+	arg database.UpdateEmailAndPasswordParams,
+) (database.UpdateEmailAndPasswordRow, error) {
+	for i, u := range m.users {
+		if u.ID == arg.ID {
+			u.Email = arg.Email
+			u.HashedPassword = arg.HashedPassword
+			u.UpdatedAt = time.Now()
+			m.users[i] = u
+			return database.UpdateEmailAndPasswordRow{Email: arg.Email}, nil
+		}
+	}
+	return database.UpdateEmailAndPasswordRow{}, errors.New("user not found")
 }
 
 // --- refresh tokens ---
@@ -92,78 +143,98 @@ func (m *mockAuthDB) RevokeRefreshToken(ctx context.Context, token string) error
 	return errors.New("token not found")
 }
 
-func TestAuthPipeline(t *testing.T) {
-	const (
-		email      = "user@test.com"
-		password   = "pa$$word"
-		secret     = "abcd"
-		loginURL   = "/api/login"
-		refreshURL = "/api/refresh"
-		revokeURL  = "/api/revoke"
-	)
+// --- test helpers ---
 
-	mock := &mockAuthDB{}
+type authTestCtx struct {
+	t      *testing.T
+	db     *mockAuthDB
+	secret string
+}
 
-	// Seed user
-	hashedPassword, _ := auth.HashPassword(password)
-	_, _ = mock.CreateUser(context.Background(), database.CreateUserParams{
+func seedUser(ctx authTestCtx, email, password string) {
+	hashed, _ := auth.HashPassword(password)
+	_, _ = ctx.db.CreateUser(context.Background(), database.CreateUserParams{
 		Email:          email,
-		HashedPassword: hashedPassword,
+		HashedPassword: hashed,
 	})
+}
 
-	// ---- LOGIN ----
-	loginBody, _ := json.Marshal(map[string]string{
+func login(
+	ctx authTestCtx,
+	email, password, url string,
+	expectStatus int,
+) apiUser {
+	body, _ := json.Marshal(map[string]string{
 		"email":    email,
 		"password": password,
 	})
 
-	loginReq := httptest.NewRequest(http.MethodPost, loginURL, bytes.NewReader(loginBody))
-	loginReq.Header.Set("Content-Type", "application/json")
-	loginRec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
 
-	HandlerLogin(mock, secret)(loginRec, loginReq)
+	HandlerLogin(ctx.db, ctx.secret)(rec, req)
 
-	if loginRec.Code != http.StatusOK {
-		t.Fatalf("login failed: %d", loginRec.Code)
+	if rec.Code != expectStatus {
+		ctx.t.Fatalf("login expected %d, got %d", expectStatus, rec.Code)
 	}
 
-	var loginResp apiUser
-	_ = json.NewDecoder(loginRec.Body).Decode(&loginResp)
-
-	if loginResp.RefreshToken == "" {
-		t.Fatal("expected refresh token on login")
+	if expectStatus != http.StatusOK {
+		return apiUser{}
 	}
 
-	// ---- REFRESH (should succeed) ----
-	refreshReq := httptest.NewRequest(http.MethodPost, refreshURL, nil)
-	refreshReq.Header.Set("Authorization", "Bearer "+loginResp.RefreshToken)
-	refreshRec := httptest.NewRecorder()
+	var resp apiUser
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
+	return resp
+}
 
-	HandlerRefresh(mock, secret)(refreshRec, refreshReq)
+func updateUser(
+	ctx authTestCtx,
+	token, email, password, url string,
+) {
+	body, _ := json.Marshal(map[string]string{
+		"email":    email,
+		"password": password,
+	})
 
-	if refreshRec.Code != http.StatusOK {
-		t.Fatalf("refresh failed: %d", refreshRec.Code)
+	req := httptest.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	HandlerUpdateEmailAndPassword(ctx.db, ctx.secret)(rec, req)
+
+	if rec.Code != http.StatusOK {
+		ctx.t.Fatalf("update failed: %d", rec.Code)
 	}
+}
 
-	// ---- REVOKE ----
-	revokeReq := httptest.NewRequest(http.MethodPost, revokeURL, nil)
-	revokeReq.Header.Set("Authorization", "Bearer "+loginResp.RefreshToken)
-	revokeRec := httptest.NewRecorder()
+func refresh(
+	ctx authTestCtx,
+	refreshToken, url string,
+	expectStatus int,
+) {
+	req := httptest.NewRequest(http.MethodPost, url, nil)
+	req.Header.Set("Authorization", "Bearer "+refreshToken)
+	rec := httptest.NewRecorder()
 
-	HandlerRevoke(mock)(revokeRec, revokeReq)
+	HandlerRefresh(ctx.db, ctx.secret)(rec, req)
 
-	if revokeRec.Code != http.StatusNoContent {
-		t.Fatalf("revoke failed: %d", revokeRec.Code)
+	if rec.Code != expectStatus {
+		ctx.t.Fatalf("refresh expected %d, got %d", expectStatus, rec.Code)
 	}
+}
 
-	// ---- REFRESH AGAIN (should fail) ----
-	refreshReq2 := httptest.NewRequest(http.MethodPost, refreshURL, nil)
-	refreshReq2.Header.Set("Authorization", "Bearer "+loginResp.RefreshToken)
-	refreshRec2 := httptest.NewRecorder()
+func revoke(
+	ctx authTestCtx,
+	refreshToken, url string,
+) {
+	req := httptest.NewRequest(http.MethodPost, url, nil)
+	req.Header.Set("Authorization", "Bearer "+refreshToken)
+	rec := httptest.NewRecorder()
 
-	HandlerRefresh(mock, secret)(refreshRec2, refreshReq2)
+	HandlerRevoke(ctx.db)(rec, req)
 
-	if refreshRec2.Code != http.StatusUnauthorized {
-		t.Fatalf("expected revoked token to fail, got %d", refreshRec2.Code)
+	if rec.Code != http.StatusNoContent {
+		ctx.t.Fatalf("revoke failed: %d", rec.Code)
 	}
 }

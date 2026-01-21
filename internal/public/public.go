@@ -66,7 +66,6 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 
 	return func(w http.ResponseWriter, req *http.Request) {
 		chirpReq := chirpParams{}
-
 		if err := json.NewDecoder(req.Body).Decode(&chirpReq); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
@@ -74,13 +73,14 @@ func HandlerPostChirp(db chirpCreator, secret string) func(http.ResponseWriter, 
 
 		token, err := auth.GetBearerToken(req.Header)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+			http.Error(w, "could not get bearer token from header", http.StatusUnauthorized)
 			return
 		}
 
 		tokenUserID, err := auth.ValidateJWT(token, secret)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
+			log.Printf("Error: could not validate JWT: %v", err)
+			http.Error(w, "could not validate JWT", http.StatusUnauthorized)
 			return
 		}
 
@@ -213,6 +213,7 @@ func HandlerCreateUser(db userCreator) func(http.ResponseWriter, *http.Request) 
 
 type authStore interface {
 	GetUserByEmail(ctx context.Context, email string) (database.User, error)
+	UpdateEmailAndPassword(ctx context.Context, arg database.UpdateEmailAndPasswordParams) (database.UpdateEmailAndPasswordRow, error)
 	CreateRefreshToken(ctx context.Context, arg database.CreateRefreshTokenParams) (database.RefreshToken, error)
 	GetRefreshToken(ctx context.Context, token string) (database.RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, token string) error
@@ -275,6 +276,53 @@ func HandlerLogin(db authStore, secret string) func(http.ResponseWriter, *http.R
 	}
 }
 
+func HandlerUpdateEmailAndPassword(db authStore, secret string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		token, err := auth.GetBearerToken(req.Header)
+		if err != nil {
+			http.Error(w, "could not get bearer token from header", http.StatusUnauthorized)
+			return
+		}
+
+		userID, err := auth.ValidateJWT(token, secret)
+		if err != nil {
+			log.Printf("Error: could not validate JWT: %v", err)
+			http.Error(w, "could not validate JWT", http.StatusUnauthorized)
+			return
+		}
+
+		var userReq userRequestParams
+		if err := json.NewDecoder(req.Body).Decode(&userReq); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		hashedPassword, err := auth.HashPassword(userReq.Password)
+		if err != nil {
+			log.Printf("Error: could not hash password: %v", err)
+			http.Error(w, "could not hash password", http.StatusInternalServerError)
+			return
+		}
+
+		dbUser, err := db.UpdateEmailAndPassword(req.Context(), database.UpdateEmailAndPasswordParams{
+			ID:             userID,
+			Email:          userReq.Email,
+			HashedPassword: hashedPassword,
+		})
+		if err != nil {
+			http.Error(w, "could not update user in db", http.StatusInternalServerError)
+			return
+		}
+
+		user := apiUser{
+			Email: dbUser.Email,
+		}
+
+		w.WriteHeader(http.StatusOK)
+		writeResponse(user, w)
+	}
+}
+
 type accessToken struct {
 	Token string `json:"token"`
 }
@@ -283,7 +331,7 @@ func HandlerRefresh(db authStore, secret string) func(http.ResponseWriter, *http
 	return func(w http.ResponseWriter, req *http.Request) {
 		token, err := auth.GetBearerToken(req.Header)
 		if err != nil {
-			http.Error(w, "could not get bearer token from header", http.StatusBadRequest)
+			http.Error(w, "could not get bearer token from header", http.StatusUnauthorized)
 			return
 		}
 
@@ -315,7 +363,7 @@ func HandlerRevoke(db authStore) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		token, err := auth.GetBearerToken(req.Header)
 		if err != nil {
-			http.Error(w, "could not get bearer token from header", http.StatusBadRequest)
+			http.Error(w, "could not get bearer token from header", http.StatusUnauthorized)
 			return
 		}
 
